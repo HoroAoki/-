@@ -3,16 +3,12 @@ let userMarker;
 let markersLayer = L.layerGroup();
 let isFirst = true;
 
-// サンプルゴミ箱データ
-const trashBins = [
-    { id: 1, name: "Station Bin", lat: 35.6812, lng: 139.7671 },
-    { id: 2, name: "Park Bin", lat: 35.6850, lng: 139.7520 },
-    { id: 3, name: "Store Bin", lat: 35.3190, lng: 139.5505 } // 鎌倉付近
-];
-
 document.addEventListener('DOMContentLoaded', () => {
+    // 初期表示
     map = L.map('map').setView([35.6895, 139.6917], 15);
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        attribution: '© OpenStreetMap contributors'
+    }).addTo(map);
     markersLayer.addTo(map);
 
     startTracking();
@@ -23,10 +19,8 @@ function startTracking() {
         alert("GPSが使えないブラウザです");
         return;
     }
-
-    // リアルタイム追跡
     navigator.geolocation.watchPosition(updatePosition, handleError, {
-        enableHighAccuracy: true, // GPSを強制使用
+        enableHighAccuracy: true,
         timeout: 10000,
         maximumAge: 0
     });
@@ -37,78 +31,98 @@ async function updatePosition(position) {
     const userPos = [latitude, longitude];
 
     if (isFirst) {
-        map.setView(userPos, 16);
+        map.setView(userPos, 17);
+        // 初回のみネットから周辺のゴミ箱を取得
+        fetchNearbyTrashBins(latitude, longitude);
         isFirst = false;
     } else {
         map.panTo(userPos);
     }
 
-    // 現在地マーカー
     if (userMarker) {
         userMarker.setLatLng(userPos);
     } else {
-        userMarker = L.circleMarker(userPos, { color: 'blue', radius: 10 }).addTo(map);
+        userMarker = L.circleMarker(userPos, { color: '#3498db', fillColor: '#fff', fillOpacity: 1, radius: 8, weight: 3 }).addTo(map);
     }
-
-    // 1. 座標から詳細住所を取得 (逆ジオコーディング)
+    
     getAddress(latitude, longitude);
-
-    // 2. 最寄りの計算と表示
-    findNearest(latitude, longitude);
 }
 
-// Nominatim API で住所を取得
-async function getAddress(lat, lng) {
+// ネット（OpenStreetMap）からゴミ箱データを取得する関数
+async function fetchNearbyTrashBins(lat, lng) {
+    document.getElementById('nearest-status').innerText = "近くのゴミ箱を検索中...";
+    
+    // 周囲1km以内のゴミ箱を探すクエリ
+    const query = `
+        [out:json];
+        node["amenity"="waste_basket"](around:1000, ${lat}, ${lng});
+        out body;
+    `;
+    const url = `https://overpass-api.de/api/interpreter?data=${encodeURIComponent(query)}`;
+
     try {
-        const res = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}&zoom=18&addressdetails=1`, {
-            headers: { 'Accept-Language': 'ja' }
-        });
-        const data = await res.json();
-        document.getElementById('address-display').innerText = `現在地: ${data.display_name}`;
+        const response = await fetch(url);
+        const data = await response.json();
+        const bins = data.elements;
+
+        if (bins.length === 0) {
+            document.getElementById('nearest-status').innerText = "半径1km以内にゴミ箱が見つかりませんでした。";
+            return;
+        }
+
+        displayBins(bins, lat, lng);
     } catch (e) {
-        console.error("住所取得失敗");
+        console.error("データの取得に失敗しました", e);
+        document.getElementById('nearest-status').innerText = "ゴミ箱データの取得に失敗しました。";
     }
 }
 
-async function findNearest(lat, lng) {
+function displayBins(bins, userLat, userLng) {
+    markersLayer.clearLayers();
     let nearest = null;
     let minDiv = Infinity;
 
-    trashBins.forEach(bin => {
-        const d = getDistance(lat, lng, bin.lat, bin.lng);
+    bins.forEach(bin => {
+        const d = getDistance(userLat, userLng, bin.lat, bin.lon);
         if (d < minDiv) {
             minDiv = d;
             nearest = bin;
         }
-    });
 
-    markersLayer.clearLayers();
-    trashBins.forEach(async bin => {
-        const isNear = bin.id === nearest.id;
+        const isNear = bin === nearest;
         const icon = L.divIcon({
-            html: `<div style="font-size: ${isNear ? '40px' : '20px'};">🗑️</div>`,
-            iconSize: [40, 40],
-            className: 'trash-icon'
+            html: `<div style="font-size: 25px;">🗑️</div>`,
+            className: 'trash-icon',
+            iconSize: [30, 30]
         });
 
-        let name = bin.name;
-        if (isNear) {
-            // MyMemoryで翻訳
-            name = await translate(bin.name);
-            document.getElementById('nearest-status').innerHTML = 
-                `最寄り: <b>${name}</b> (約${Math.round(minDiv)}m)`;
-        }
-
-        L.marker([bin.lat, bin.lng], { icon }).addTo(markersLayer).bindPopup(name);
+        L.marker([bin.lat, bin.lon], { icon }).addTo(markersLayer)
+         .bindPopup(isNear ? "一番近いゴミ箱" : "ゴミ箱");
     });
+
+    if (nearest) {
+        // 最寄りを強調
+        const nearestIcon = L.divIcon({
+            html: `<div style="font-size: 45px; filter: drop-shadow(0 0 5px red);">🗑️</div>`,
+            className: 'trash-icon',
+            iconSize: [50, 50]
+        });
+        L.marker([nearest.lat, nearest.lon], { icon: nearestIcon }).addTo(markersLayer)
+         .bindPopup("<b>ここが一番近いです！</b>").openPopup();
+
+        document.getElementById('nearest-status').innerHTML = 
+            `最寄りのゴミ箱まで約 <b>${Math.round(minDiv)}m</b> です。`;
+    }
 }
 
-async function translate(text) {
+async function getAddress(lat, lng) {
     try {
-        const res = await fetch(`https://api.mymemory.translated.net/get?q=${encodeURIComponent(text)}&langpair=en|ja`);
+        const res = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}&zoom=18`, {
+            headers: { 'Accept-Language': 'ja' }
+        });
         const data = await res.json();
-        return data.responseData.translatedText;
-    } catch { return text; }
+        document.getElementById('address-display').innerText = `現在地: ${data.display_name}`;
+    } catch (e) {}
 }
 
 function getDistance(lat1, lon1, lat2, lon2) {
@@ -120,5 +134,5 @@ function getDistance(lat1, lon1, lat2, lon2) {
 }
 
 function handleError(err) {
-    document.getElementById('nearest-status').innerText = `エラー: ${err.message}. HTTPS接続か確認してください。`;
+    document.getElementById('nearest-status').innerText = "GPSを許可してください。";
 }
