@@ -2,14 +2,14 @@ let map;
 let userMarker;
 let markersLayer = L.layerGroup();
 let isFirst = true;
-// 手動で追加するゴミ箱のリスト
+
+// 手動で追加するゴミ箱のリスト（好きなだけ増やせます）
 const manualBins = [
-    { id: 901, name: "追加ゴミ箱1", lat: 35.3190, lng: 139.5505 },
+    { id: 901, name: "鎌倉駅前（手動）", lat: 35.3190, lng: 139.5505 },
     { id: 902, name: "追加ゴミ箱2", lat: 35.3200, lng: 139.5510 }
 ];
 
 document.addEventListener('DOMContentLoaded', () => {
-    // 初期表示
     map = L.map('map').setView([35.6895, 139.6917], 15);
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
         attribution: '© OpenStreetMap contributors'
@@ -37,7 +37,6 @@ async function updatePosition(position) {
 
     if (isFirst) {
         map.setView(userPos, 17);
-        // 初回のみネットから周辺のゴミ箱を取得
         fetchNearbyTrashBins(latitude, longitude);
         isFirst = false;
     } else {
@@ -53,38 +52,40 @@ async function updatePosition(position) {
     getAddress(latitude, longitude);
 }
 
-// ネット（OpenStreetMap）からゴミ箱データを取得する関数
 async function fetchNearbyTrashBins(lat, lng) {
     document.getElementById('nearest-status').innerText = "近くのゴミ箱を検索中...";
     
-    // 周囲1km以内のゴミ箱を探すクエリ
-    const query = `
-        [out:json];
-        node["amenity"="waste_basket"](around:1000, ${lat}, ${lng});
-        out body;
-    `;
-    const url = `https://overpass-api.de/api/interpreter?data=${encodeURIComponent(query)}`;
+    const query = `[out:json];node["amenity"="waste_basket"](around:1000, ${lat}, ${lng});out body;`;
+    
+    // 予備のサーバーURL（こちらの方が安定していることが多いです）
+    const url = `https://overpass.kumi.systems/api/interpreter?data=${encodeURIComponent(query)}`;
 
     try {
         const response = await fetch(url);
+        if (!response.ok) throw new Error('Network error'); // サーバーエラーを検知
+        
         const data = await response.json();
-        const bins = data.elements;
-
-        if (bins.length === 0) {
-            document.getElementById('nearest-status').innerText = "半径1km以内にゴミ箱が見つかりませんでした。";
-            return;
-        }
+        const bins = data.elements || [];
 
         displayBins(bins, lat, lng);
+        
+        if (bins.length === 0) {
+            document.getElementById('nearest-status').innerText = "周辺に登録済みのゴミ箱が見つかりませんでした（手動分のみ表示中）";
+        }
     } catch (e) {
-        console.error("データの取得に失敗しました", e);
-        document.getElementById('nearest-status').innerText = "ゴミ箱データの取得に失敗しました。";
+        console.error("ネットデータの取得に失敗しました", e);
+        document.getElementById('nearest-status').innerText = "サーバー混雑中。手動追加分のみ表示します。";
+        // 失敗しても、手動のゴミ箱だけは表示させる！
+        displayBins([], lat, lng);
     }
 }
 
 function displayBins(bins, userLat, userLng) {
     markersLayer.clearLayers();
-    const allBins = [...bins, ...(typeof manualBins !== 'undefined' ? manualBins : [])];
+    
+    // ネットのデータ(bins)と手動データ(manualBins)を合体
+    const allBins = [...bins, ...manualBins];
+    
     let nearest = null;
     let minDiv = Infinity;
 
@@ -92,15 +93,18 @@ function displayBins(bins, userLat, userLng) {
         const binLat = bin.lat;
         const binLng = bin.lon || bin.lng; 
         const d = getDistance(userLat, userLng, binLat, binLng);
+        
         if (d < minDiv) {
             minDiv = d;
             nearest = bin;
         }
+
         const icon = L.divIcon({
             html: `<div style="font-size: 25px;">🗑️</div>`,
             className: 'trash-icon',
             iconSize: [30, 30]
         });
+
         L.marker([binLat, binLng], { icon }).addTo(markersLayer)
          .bindPopup(bin.name || "ゴミ箱");
     });
@@ -114,7 +118,8 @@ function displayBins(bins, userLat, userLng) {
             iconSize: [50, 50]
         });
         L.marker([nearestLat, nearestLng], { icon: nearestIcon }).addTo(markersLayer)
-         .bindPopup(`<b>一番近いゴミ箱: ${nearest.name || ""}</b>`).openPopup();
+         .bindPopup(`<b>一番近いゴミ箱: ${nearest.name || "ゴミ箱"}</b>`).openPopup();
+
         document.getElementById('nearest-status').innerHTML = 
             `最寄りのゴミ箱まで約 <b>${Math.round(minDiv)}m</b> です。`;
     }
