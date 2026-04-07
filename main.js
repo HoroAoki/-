@@ -2,6 +2,11 @@ let map;
 let userMarker;
 let markersLayer = L.layerGroup();
 let isFirst = true;
+// 手動で追加するゴミ箱のリスト
+const manualBins = [
+    { id: 901, name: "追加ゴミ箱1", lat: 35.3190, lng: 139.5505 },
+    { id: 902, name: "追加ゴミ箱2", lat: 35.3200, lng: 139.5510 }
+];
 
 document.addEventListener('DOMContentLoaded', () => {
     // 初期表示
