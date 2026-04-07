@@ -84,37 +84,37 @@ async function fetchNearbyTrashBins(lat, lng) {
 
 function displayBins(bins, userLat, userLng) {
     markersLayer.clearLayers();
+    const allBins = [...bins, ...(typeof manualBins !== 'undefined' ? manualBins : [])];
     let nearest = null;
     let minDiv = Infinity;
 
-    bins.forEach(bin => {
-        const d = getDistance(userLat, userLng, bin.lat, bin.lon);
+    allBins.forEach(bin => {
+        const binLat = bin.lat;
+        const binLng = bin.lon || bin.lng; 
+        const d = getDistance(userLat, userLng, binLat, binLng);
         if (d < minDiv) {
             minDiv = d;
             nearest = bin;
         }
-
-        const isNear = bin === nearest;
         const icon = L.divIcon({
             html: `<div style="font-size: 25px;">🗑️</div>`,
             className: 'trash-icon',
             iconSize: [30, 30]
         });
-
-        L.marker([bin.lat, bin.lon], { icon }).addTo(markersLayer)
-         .bindPopup(isNear ? "一番近いゴミ箱" : "ゴミ箱");
+        L.marker([binLat, binLng], { icon }).addTo(markersLayer)
+         .bindPopup(bin.name || "ゴミ箱");
     });
 
     if (nearest) {
-        // 最寄りを強調
+        const nearestLat = nearest.lat;
+        const nearestLng = nearest.lon || nearest.lng;
         const nearestIcon = L.divIcon({
             html: `<div style="font-size: 45px; filter: drop-shadow(0 0 5px red);">🗑️</div>`,
             className: 'trash-icon',
             iconSize: [50, 50]
         });
-        L.marker([nearest.lat, nearest.lon], { icon: nearestIcon }).addTo(markersLayer)
-         .bindPopup("<b>ここが一番近いです！</b>").openPopup();
-
+        L.marker([nearestLat, nearestLng], { icon: nearestIcon }).addTo(markersLayer)
+         .bindPopup(`<b>一番近いゴミ箱: ${nearest.name || ""}</b>`).openPopup();
         document.getElementById('nearest-status').innerHTML = 
             `最寄りのゴミ箱まで約 <b>${Math.round(minDiv)}m</b> です。`;
     }
